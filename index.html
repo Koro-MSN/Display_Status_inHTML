@@ -3,9 +3,115 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Status</title>
+    <title>Multi Monitor Dash</title>
+    <style>
+        body { font-family: sans-serif; background: #f0f0f0; display: flex; flex-wrap: wrap; gap: 20px; padding: 20px; }
+        .card { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        #display { border: 2px solid #333; max-width: 400px; }
+        progress { width: 150px; }
+    </style>
 </head>
 <body>
+
+    <div class="card">
+        <h3>Windows Screen</h3>
+        <img id="display" src="" alt="Waiting for screen data..." />
+    </div>
+
+    <div class="card">
+        <h3>System Status</h3>
+        <p id="cpu">CPU: --%</p>
+        <p id="mem">Memory: -- GB / -- GB (--%)</p>
+        <div id="cpu-container">
+            <h4>Cores Overall: <span id="avg-load">0</span>%</h4>
+            <div id="core-bars"></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <h3>Local Weather</h3>
+        <p id="weather-text">取得中...</p>
+        <p>気温: <span id="temp">--</span>°C</p>
+        <small>Weather data by Open-Meteo.com</small>
+    </div>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+    // --- 設定 ---
+    const WINDOWS_IP = '127.0.0.1'; // 実際にはWindowsのIPに変更
+    const socket = io(`http://${WINDOWS_IP}:3000`);
     
+    // デフォルト座標（取得できなかった時用：東京）
+    let lat = 35.6895;
+    let lon = 139.6917;
+
+    // --- DOM要素 ---
+    const imgTag = document.getElementById('display');
+    const coreContainer = document.getElementById('core-bars');
+    const avgText = document.getElementById('avg-load');
+
+    // --- 1. 画面・システム情報の受信 ---
+    socket.on('screen-data', (base64String) => {
+        imgTag.src = 'data:image/jpeg;base64,' + base64String;
+    });
+
+    socket.on('status-data', (statusData) => {
+        document.getElementById('cpu').textContent = 'CPU: ' + statusData.avgLoad + '%';
+        document.getElementById('mem').textContent = `Memory: ${statusData.memUsedGB} GB / ${statusData.memTotalGB} GB (${statusData.memPercent}%)`;
+        avgText.innerText = statusData.avgLoad;
+
+        statusData.cores.forEach((coreLoad, index) => {
+            let bar = document.getElementById(`core-${index}`);
+            if (!bar) {
+                const wrapper = document.createElement('div');
+                wrapper.innerHTML = `Core ${index}: <progress id="core-${index}" value="0" max="100"></progress> <span>${coreLoad}%</span>`;
+                coreContainer.appendChild(wrapper);
+                bar = document.getElementById(`core-${index}`);
+            }
+            bar.value = coreLoad;
+            bar.nextElementSibling.innerText = coreLoad + '%';
+        });
+    });
+
+    // --- 2. 位置情報の取得試行 ---
+    navigator.geolocation.getCurrentPosition(
+        (position) => {
+            lat = position.coords.latitude;
+            lon = position.coords.longitude;
+            console.log("座標取得成功:", lat, lon);
+            updateWeather(); // 座標が取れたら即更新
+        },
+        (error) => {
+            console.warn("ブラウザからの座標取得に失敗（HTTP制限など）。デフォルト値を使用します。");
+            updateWeather(); // 失敗してもデフォルト座標で更新
+        }
+    );
+
+    // --- 3. 天気情報の取得 ---
+    async function updateWeather() {
+        try {
+            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia%2FTokyo`;
+            const response = await fetch(url);
+            const data = await response.json();
+            const current = data.current_weather;
+
+            document.getElementById('temp').innerText = current.temperature;
+            document.getElementById('weather-text').innerText = getWeatherText(current.weathercode);
+        } catch (e) {
+            document.getElementById('weather-text').innerText = "天気更新失敗";
+        }
+    }
+
+    function getWeatherText(code) {
+        const weatherMap = {
+            0: "快晴", 1: "晴れ", 2: "時々曇り", 3: "曇り",
+            45: "霧", 48: "着氷性の霧", 51: "小雨", 61: "雨", 95: "雷雨"
+        };
+        return weatherMap[code] || `不明(${code})`;
+    }
+
+    // 天気は10分ごとに更新
+    setInterval(updateWeather, 600000);
+    </script>
 </body>
 </html>
