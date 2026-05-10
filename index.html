@@ -5,36 +5,61 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Multi Monitor Dash</title>
     <style>
-        body { font-family: sans-serif; background: #f0f0f0; display: flex; flex-wrap: wrap; gap: 20px; padding: 20px; }
-        .card { background: white; padding: 15px; border-radius: 10px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
-        #display { border: 2px solid #333; max-width: 400px; }
-        progress { width: 150px; }
+        body {
+            font-family: sans-serif;
+            background: #f0f0f0;
+            display: absolute;
+            flex-wrap: wrap;
+            gap: 20px;
+            padding: 20px;
+        }
+        .main {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: center;
+            width: 100%;
+        }
+        .card {
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+        #display {
+            border: 2px solid #333;
+            max-width: 400px;
+        }
+        progress {
+            width: 150px;
+        }
     </style>
 </head>
 <body>
+    <div class="change_theme"></div>
+    <div class="main">
+        <div class="card">
+            <h3>Windows Screen</h3>
+            <img id="display" src="" alt="Waiting for screen data..." />
+        </div>
 
-    <div class="card">
-        <h3>Windows Screen</h3>
-        <img id="display" src="" alt="Waiting for screen data..." />
-    </div>
+        <div class="card">
+            <h3>System Status</h3>
+            <div id="cpu-container">
+                <h4>CPU Average: <span id="avg-load">0</span>%</h4>
+                <div id="core-bars"></div>
+            </div>
+            <p id="mem">Memory: -- GB / -- GB (--%)</p>
+        </div>
 
-    <div class="card">
-        <h3>System Status</h3>
-        <p id="cpu">CPU: --%</p>
-        <p id="mem">Memory: -- GB / -- GB (--%)</p>
-        <div id="cpu-container">
-            <h4>Cores Overall: <span id="avg-load">0</span>%</h4>
-            <div id="core-bars"></div>
+        <div class="card">
+            <h3>Local Weather</h3>
+            <p id="weather-text">取得中...</p>
+            <p>座標: <span id="coordinates">--</span></p>
+            <p>気温: <span id="temp">--</span>°C</p>
+            <small>Weather data by Open-Meteo.com</small>
         </div>
     </div>
-
-    <div class="card">
-        <h3>Local Weather</h3>
-        <p id="weather-text">取得中...</p>
-        <p>気温: <span id="temp">--</span>°C</p>
-        <small>Weather data by Open-Meteo.com</small>
-    </div>
-
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
     // --- 設定 ---
@@ -49,14 +74,13 @@
     const imgTag = document.getElementById('display');
     const coreContainer = document.getElementById('core-bars');
     const avgText = document.getElementById('avg-load');
-
+    var address = "不明"
     // --- 1. 画面・システム情報の受信 ---
     socket.on('screen-data', (base64String) => {
         imgTag.src = 'data:image/jpeg;base64,' + base64String;
     });
 
     socket.on('status-data', (statusData) => {
-        document.getElementById('cpu').textContent = 'CPU: ' + statusData.avgLoad + '%';
         document.getElementById('mem').textContent = `Memory: ${statusData.memUsedGB} GB / ${statusData.memTotalGB} GB (${statusData.memPercent}%)`;
         avgText.innerText = statusData.avgLoad;
 
@@ -94,8 +118,27 @@
             const response = await fetch(url);
             const data = await response.json();
             const current = data.current_weather;
+            async function getAddress(lat, lon) {
+                // 国土地理院の逆ジオコーディングAPI
+                const url = `https://msearch.gsi.go.jp/address-search/AddressSearch?from=addrsearch&lon=${lon}&lat=${lat}`;
 
+                try {
+                    const response = await fetch(url);
+                    const data = await response.json();
+                
+                    if (data && data.length > 0) {
+                        // 例: "東京都新宿区西新宿２丁目８−１" のような文字列が返る
+                        address = data[0].address;
+                        return address;
+                    }
+                } catch (error) {
+                    address = `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+                    return address;
+                }
+            }
             document.getElementById('temp').innerText = current.temperature;
+            address = await getAddress(lat, lon)
+            document.getElementById('coordinates').innerText = address;
             document.getElementById('weather-text').innerText = getWeatherText(current.weathercode);
         } catch (e) {
             document.getElementById('weather-text').innerText = "天気更新失敗";
