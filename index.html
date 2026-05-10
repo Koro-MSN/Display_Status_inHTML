@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="jp">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -8,153 +9,312 @@
         body {
             font-family: sans-serif;
             background: #f0f0f0;
-            display: absolute;
+            display: flex;
             flex-wrap: wrap;
             gap: 20px;
             padding: 20px;
         }
+
         .main {
             display: flex;
             flex-wrap: wrap;
             gap: 20px;
-            justify-content: center;
+            justify-content: left;
             width: 100%;
         }
-        .card {
+
+        .card,
+        .files {
             background: white;
             padding: 15px;
             border-radius: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
         }
+
+        .files {
+            flex-wrap: wrap;
+            display: flex;
+        }
+
+        .files div {
+            padding-right: 30px;
+        }
+
+        .files div textarea {
+            width: 400px;
+            height: 90%;
+        }
+
         #display {
             border: 2px solid #333;
             max-width: 400px;
         }
+
         progress {
             width: 150px;
         }
+
+        .change_theme {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: left;
+            background: white;
+            padding: 15px;
+            border-radius: 10px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+        }
+
+        .dark {
+            background: #222;
+            color: #eee;
+        }
+
+        .dark_card {
+            background: #333;
+            color: #eee;
+        }
+
+        #file-list {
+            cursor: pointer;
+            color: blue;
+            text-decoration: underline;
+        }
+
+        /* 編集中のテキストエリアを強調 */
+        #file-editor:focus {
+            background-color: #fffdf0;
+            /* ほんのり黄色に */
+            outline: none;
+            border: 2px solid #ff4500;
+        }
+
+        /* ファイルリストのホバー効果 */
+        #file-list li:hover {
+            background-color: #e0e0ff;
+            border-radius: 4px;
+        }
     </style>
 </head>
+
 <body>
-    <div class="change_theme"></div>
+    <div class="change_theme">
+        <button
+            onclick="document.body.classList.toggle('dark');document.querySelectorAll('.card').forEach(card => card.classList.toggle('dark_card'));document.querySelectorAll('.change_theme').forEach(change_theme => change_theme.classList.toggle('dark_card'));document.querySelectorAll('.files').forEach(files => files.classList.toggle('dark_card'))">テーマ切替</button>
+        <input type="text" id="ip-input" placeholder="ServerのIPを入力" style="margin-left: 20px; padding: 5px;" />
+    </div>
     <div class="main">
-        <div class="card">
-            <h3>Windows Screen</h3>
-            <img id="display" src="" alt="Waiting for screen data..." />
-        </div>
-
-        <div class="card">
-            <h3>System Status</h3>
-            <div id="cpu-container">
-                <h4>CPU Average: <span id="avg-load">0</span>%</h4>
-                <div id="core-bars"></div>
+        <snap class="card">
+            <div>
+                <h3>Windows Screen</h3>
+                <img id="display" src="" alt="Waiting for screen data..." />
             </div>
-            <p id="mem">Memory: -- GB / -- GB (--%)</p>
-        </div>
 
-        <div class="card">
-            <h3>Local Weather</h3>
-            <p id="weather-text">取得中...</p>
-            <p>座標: <span id="coordinates">--</span></p>
-            <p>気温: <span id="temp">--</span>°C</p>
-            <small>Weather data by Open-Meteo.com</small>
+            <div>
+                <h3>Local Weather</h3>
+                <p id="weather-text">取得中...</p>
+                <p>座標: <span id="coordinates">--</span></p>
+                <p>気温: <span id="temp">--</span>°C</p>
+                <small>Weather data by Open-Meteo.com</small>
+            </div>
+            <div>
+                <h3>System Status</h3>
+                <div id="cpu-container">
+                    <h4>CPU Average: <span id="avg-load">0</span>%</h4>
+                    <div id="core-bars"></div>
+                </div>
+                <p id="mem">Memory: -- GB / -- GB (--%)</p>
+            </div>
+        </snap>
+        <div class="files">
+            <div>
+                <h3>File Explorer</h3>
+                <p id="current-path" style="font-size: 12px; color: #666;"></p>
+                <ul id="file-list"></ul>
+            </div>
+            <div>
+                <h4 id="editing-status">ファイルを選択してください</h4>
+                <textarea id="file-editor"></textarea>
+                <button onclick="saveFile()">保存実行</button>
+            </div>
         </div>
     </div>
     <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <script>
-    // --- 設定 ---
-    const WINDOWS_IP = '127.0.0.1'; // 実際にはWindowsのIPに変更
-    const socket = io(`http://${WINDOWS_IP}:3000`);
-    
-    // デフォルト座標（取得できなかった時用：東京）
-    let lat = 35.6895;
-    let lon = 139.6917;
-
-    // --- DOM要素 ---
-    const imgTag = document.getElementById('display');
-    const coreContainer = document.getElementById('core-bars');
-    const avgText = document.getElementById('avg-load');
-    var address = "不明"
-    // --- 1. 画面・システム情報の受信 ---
-    socket.on('screen-data', (base64String) => {
-        imgTag.src = 'data:image/jpeg;base64,' + base64String;
-    });
-
-    socket.on('status-data', (statusData) => {
-        document.getElementById('mem').textContent = `Memory: ${statusData.memUsedGB} GB / ${statusData.memTotalGB} GB (${statusData.memPercent}%)`;
-        avgText.innerText = statusData.avgLoad;
-
-        statusData.cores.forEach((coreLoad, index) => {
-            let bar = document.getElementById(`core-${index}`);
-            if (!bar) {
-                const wrapper = document.createElement('div');
-                wrapper.innerHTML = `Core ${index}: <progress id="core-${index}" value="0" max="100"></progress> <span>${coreLoad}%</span>`;
-                coreContainer.appendChild(wrapper);
-                bar = document.getElementById(`core-${index}`);
+        // --- 設定 ---
+        var socket;
+        function connectToServer(ip) {
+            // 1. 既存の接続があれば完全に切断する
+            if (socket) {
+                socket.disconnect();
+                console.log("既存の接続を切断しました");
             }
-            bar.value = coreLoad;
-            bar.nextElementSibling.innerText = coreLoad + '%';
-        });
-    });
 
-    // --- 2. 位置情報の取得試行 ---
-    navigator.geolocation.getCurrentPosition(
-        (position) => {
-            lat = position.coords.latitude;
-            lon = position.coords.longitude;
-            console.log("座標取得成功:", lat, lon);
-            updateWeather(); // 座標が取れたら即更新
-        },
-        (error) => {
-            console.warn("ブラウザからの座標取得に失敗（HTTP制限など）。デフォルト値を使用します。");
-            updateWeather(); // 失敗してもデフォルト座標で更新
+            // 2. 新しいIPでソケットを生成
+            socket = io(`http://${ip}:3000`);
+
+            // 3. 重要：新しいソケットに対して「受信ルール」をすべて再登録する
+            // これをしないと、IPを変えた後のソケットがデータを受け取れません
+            socket.on('file-list', (data) => {
+                // リスト描画処理...
+            });
+
+            socket.on('file-data', (data) => {
+                activeFile = data.filename;
+                statusEl.innerText = "編集完了: " + data.filename;
+                editorEl.value = data.content; // これでtextareaに表示される
+                editorEl.focus();
+            });
+
+            socket.on('screen-data', (base64) => { /* 画面更新 */ });
+            socket.on('status-data', (status) => { /* ステータス更新 */ });
+
+            console.log("接続先を更新しました:", ip);
+            setupSocketListeners();
         }
-    );
+        document.getElementById('ip-input').addEventListener("change", () => {
+            const newIP = document.getElementById('ip-input').value.trim();
+            if (newIP) {
+                localStorage.setItem("ipaddress", newIP);
+                connectToServer(String(newIP));
+            }
+        });
+        function setupSocketListeners() {
+            // --- 1. 画面・システム情報の受信 ---
+            socket.on('screen-data', (base64String) => {
+                imgTag.src = 'data:image/jpeg;base64,' + base64String;
+            });
 
-    // --- 3. 天気情報の取得 ---
-    async function updateWeather() {
-        try {
-            const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia%2FTokyo`;
-            const response = await fetch(url);
-            const data = await response.json();
-            const current = data.current_weather;
-            async function getAddress(lat, lon) {
-                // 国土地理院の逆ジオコーディングAPI
-                const url = `https://msearch.gsi.go.jp/address-search/AddressSearch?from=addrsearch&lon=${lon}&lat=${lat}`;
+            socket.on('status-data', (statusData) => {
+                document.getElementById('mem').textContent = `Memory: ${statusData.memUsedGB} GB / ${statusData.memTotalGB} GB (${statusData.memPercent}%)`;
+                avgText.innerText = statusData.avgLoad;
 
-                try {
-                    const response = await fetch(url);
-                    const data = await response.json();
-                
-                    if (data && data.length > 0) {
-                        // 例: "東京都新宿区西新宿２丁目８−１" のような文字列が返る
-                        address = data[0].address;
+                statusData.cores.forEach((coreLoad, index) => {
+                    let bar = document.getElementById(`core-${index}`);
+                    if (!bar) {
+                        const wrapper = document.createElement('div');
+                        wrapper.innerHTML = `Core ${index}: <progress id="core-${index}" value="0" max="100"></progress> <span>${coreLoad}%</span>`;
+                        coreContainer.appendChild(wrapper);
+                        bar = document.getElementById(`core-${index}`);
+                    }
+                    bar.value = coreLoad;
+                    bar.nextElementSibling.innerText = coreLoad + '%';
+                });
+            });
+
+            // --- 2. 位置情報の取得試行 ---
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    lat = position.coords.latitude;
+                    lon = position.coords.longitude;
+                    console.log("座標取得成功:", lat, lon);
+                    updateWeather(); // 座標が取れたら即更新
+                },
+                (error) => {
+                    console.warn("ブラウザからの座標取得に失敗（HTTP制限など）。デフォルト値を使用します。");
+                    updateWeather(); // 失敗してもデフォルト座標で更新
+                }
+            );
+            // リスト表示
+            socket.on('file-list', (data) => {
+                pathEl.innerText = "現在: " + data.dir;
+                fileListEl.innerHTML = '<li onclick="socket.emit(\'change-dir\', \'..\')">📁 [一つ上へ]</li>';
+                data.files.forEach(f => {
+                    const li = document.createElement('li');
+                    li.className = f.isDir ? 'dir' : 'file';
+                    li.innerText = (f.isDir ? '📁 ' : '📄 ') + f.name;
+                    li.onclick = () => {
+                        if (f.isDir) socket.emit('change-dir', f.name);
+                        else socket.emit('request-file', f.name);
+                    };
+                    fileListEl.appendChild(li);
+                });
+            });
+
+            // ファイル中身受信
+            socket.on('file-data', (data) => {
+                activeFile = data.filename;
+                statusEl.innerText = "編集完了: " + data.filename;
+                editorEl.value = data.content; // ここでtextareaに反映
+                editorEl.focus();
+            });
+
+            function saveFile() {
+                if (!activeFile) return alert("ファイルを選んでください");
+                socket.emit('save-file', { filename: activeFile, content: editorEl.value });
+                alert("保存しました");
+            }
+
+
+        }
+        if (localStorage.getItem("ipaddress") === null){
+            localStorage.setItem("ipaddress", "127.0.0.1");
+        }else{
+            document.getElementById('ip-input').value = localStorage.getItem("ipaddress");
+        }
+        connectToServer(localStorage.getItem("ipaddress"));
+        // デフォルト座標（取得できなかった時用：東京）
+        let lat = 35.6895;
+        let lon = 139.6917;
+
+        // --- DOM要素 ---
+        const imgTag = document.getElementById('display');
+        const coreContainer = document.getElementById('core-bars');
+        const avgText = document.getElementById('avg-load');
+        var address = "不明"
+        var TARGET_DIR = "C://"
+        const fileListEl = document.getElementById('file-list');
+        const editorEl = document.getElementById('file-editor');
+        const statusEl = document.getElementById('editing-status');
+        const pathEl = document.getElementById('current-path');
+        // --- 3. 天気情報の取得 ---
+        async function updateWeather() {
+            try {
+                const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&timezone=Asia%2FTokyo`;
+                const response = await fetch(url);
+                const data = await response.json();
+                const current = data.current_weather;
+                async function getAddress(lat, lon) {
+                    // 国土地理院の逆ジオコーディングAPI
+                    const url = `https://msearch.gsi.go.jp/address-search/AddressSearch?from=addrsearch&lon=${lon}&lat=${lat}`;
+
+                    try {
+                        const response = await fetch(url);
+                        const data = await response.json();
+
+                        if (data && data.length > 0) {
+                            // 例: "東京都新宿区西新宿２丁目８−１" のような文字列が返る
+                            address = data[0].address;
+                            return address;
+                        }
+                    } catch (error) {
+                        address = `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
                         return address;
                     }
-                } catch (error) {
-                    address = `${lat.toFixed(2)}, ${lon.toFixed(2)}`;
-                    return address;
                 }
+                document.getElementById('temp').innerText = current.temperature;
+                address = await getAddress(lat, lon)
+                document.getElementById('coordinates').innerText = address;
+                document.getElementById('weather-text').innerText = getWeatherText(current.weathercode);
+            } catch (e) {
+                document.getElementById('weather-text').innerText = "天気更新失敗";
             }
-            document.getElementById('temp').innerText = current.temperature;
-            address = await getAddress(lat, lon)
-            document.getElementById('coordinates').innerText = address;
-            document.getElementById('weather-text').innerText = getWeatherText(current.weathercode);
-        } catch (e) {
-            document.getElementById('weather-text').innerText = "天気更新失敗";
         }
-    }
 
-    function getWeatherText(code) {
-        const weatherMap = {
-            0: "快晴", 1: "晴れ", 2: "時々曇り", 3: "曇り",
-            45: "霧", 48: "着氷性の霧", 51: "小雨", 61: "雨", 95: "雷雨"
-        };
-        return weatherMap[code] || `不明(${code})`;
-    }
+        function getWeatherText(code) {
+            const weatherMap = {
+                0: "快晴", 1: "晴れ", 2: "時々曇り", 3: "曇り",
+                45: "霧", 48: "着氷性の霧", 51: "小雨", 61: "雨", 95: "雷雨"
+            };
+            return weatherMap[code] || `不明(${code})`;
+        }
 
-    // 天気は10分ごとに更新
-    setInterval(updateWeather, 600000);
+        // 天気は10分ごとに更新
+        setInterval(updateWeather, 600000);
+
+
+
     </script>
 </body>
+
 </html>
